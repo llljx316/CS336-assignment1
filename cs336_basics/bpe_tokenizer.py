@@ -81,7 +81,7 @@ def train_bpe(
         vocab[len(vocab)]= bytes(st.encode('utf-8'))
     merges = list()
 
-    def change_freq(freq:dict, max_token):
+    def change_freq_naive(freq:dict, max_token):
         for word in list(freq.keys()):
             new_word = []
             i = 0
@@ -100,29 +100,59 @@ def train_bpe(
             if len(new_word) != len(word):
                 freq[new_word] = freq.pop(word)
 
+    def change_freq(freq:dict, max_token, pair_storage):
+        for word, count in list(freq.items()):
+            new_word = []
+            i = 0
+            while i<len(word)-1:
+                if (word[i],word[i+1]) == max_token:
+                    new_word.append(word[i]+word[i+1])
+                    #update pair_storage
+                    if i>0:
+                        pair_storage[(word[i-1], word[i]+word[i+1])] += count
+                        pair_storage[(word[i-1], word[i])]-=count
+                    if i+2<len(word):
+                        pair_storage[(word[i]+word[i+1], word[i+2])] += count 
+                        pair_storage[(word[i+1], word[i+2])] -= count
+                    i+=1 
+                else:
+                    new_word.append(word[i])
+                i+=1
+            #last one 
+            if i<len(word):
+                new_word.append(word[i])
+                i+=1
+            new_word = tuple(new_word)
+            if len(new_word) != len(word):
+                freq[new_word] = freq.pop(word)
+        #update pair storage
+        pair_storage.pop((max_token[0], max_token[1]))
+
     def merge(freq: dict, vocab, merges, vocab_size, special_tokens: set):
         # naive merge
+        pair_storage = defaultdict(int)
+        # pair_index = defaultdict(list)
+        #init pair storage and create index
+        for word, count in freq.items():
+            for i in range(len(word)-1):
+                #merge two bytes
+                pair_storage[(word[i],word[i+1])]+= count
+                # pair_index[(word[i], word[i+1])].append((word, i)) # use address can do 
+
         while len(vocab) < vocab_size:
-            pair_storage = defaultdict(int)
             #find
-            for word, count in freq.items():
-                for i in range(len(word)-1):
-                    #merge two bytes
-                    #maybe optimized
-                    if word[i] in special_tokens:
-                        continue
-                    if word[i+1] in special_tokens:
-                        continue
-                    if word[i]+word[i+1] in special_tokens:
-                        continue
-                    pair_storage[(word[i],word[i+1])]+= count
+            # for word, count in freq.items():
+            #     for i in range(len(word)-1):
+            #         #merge two bytes
+            #         #maybe optimized
+            #         pair_storage[(word[i],word[i+1])]+= count
             #add merges and vocab 
             #find max value in pair storage
             max_key = max(pair_storage, key=lambda k: (pair_storage[k], k)) # 按照字典序来
             merges.append(max_key)
             vocab[len(vocab)]=merge_two_bytes(max_key)
             #exchange
-            change_freq(freq, max_key)
+            change_freq(freq, max_key, pair_storage)
             
 
     merge(freq, vocab, merges, vocab_size, special_tokens)
