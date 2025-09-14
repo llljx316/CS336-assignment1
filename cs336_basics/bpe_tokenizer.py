@@ -32,10 +32,27 @@ def train_bpe(
                 Merges are ordered by order of creation.
     """
 
+    special_tokens_sorted = sorted(special_tokens, key=len, reverse=True)
+    special_tokens_re = re.compile("|".join(re.escape(st) for st in special_tokens_sorted)) if special_tokens_sorted else None
+
     def get_freq(corpus, freq):
         for match in re.finditer(PAT, corpus):
             word = tuple(bytes([b]) for b in match.group().encode("utf-8"))
             freq[word] += 1
+    
+    def get_freq_without_special_tokens(chunk, freq):
+        # 先按 special token 切段，special token 本身作为单一词元 (bytes,) 计数
+        if len(special_tokens) == 0:
+            get_freq(chunk, freq)
+        else:
+            pos = 0
+            for sm in special_tokens_re.finditer(chunk):
+                if sm.start() > pos:
+                    get_freq(chunk[pos:sm.start()], freq)
+                pos = sm.end()
+            if pos < len(chunk):
+                get_freq(chunk[pos:], freq)
+        
 
     def merge_two_bytes(bl):
         assert len(bl) == 2
@@ -52,11 +69,16 @@ def train_bpe(
             f.seek(start)
             chunk = f.read(end - start).decode("utf-8", errors="ignore")
             # Run pre-tokenization on your chunk and store the counts for each pre-token
-            get_freq(chunk, freq)
+            #special token split
+            get_freq_without_special_tokens(chunk, freq)
+
         freq = dict(freq)
 
-    vocab = {i+1:bytes([i]) for i in range(256)}
-    vocab[0] = b"<|endoftext|>"
+    vocab = {i:bytes([i]) for i in range(256)}
+    # add special tokens
+    # vocab[len(vocab)] = b"<|endoftext|>"
+    for st in special_tokens:
+        vocab[len(vocab)]= bytes(st.encode('utf-8'))
     merges = list()
 
     def change_freq(freq:dict, max_token):
@@ -90,6 +112,8 @@ def train_bpe(
                     if word[i] in special_tokens:
                         continue
                     if word[i+1] in special_tokens:
+                        continue
+                    if word[i]+word[i+1] in special_tokens:
                         continue
                     pair_storage[(word[i],word[i+1])]+= count
             #add merges and vocab 
