@@ -3,6 +3,10 @@ import regex as re
 import os
 from collections import defaultdict
 from .pretokenization_example import find_chunk_boundaries
+from tqdm import tqdm
+# import cProfile
+# import re
+# cProfile.run('re.compile("foo|bar")')
 
 def train_bpe(
     input_path: str | os.PathLike,
@@ -100,17 +104,24 @@ def train_bpe(
             if len(new_word) != len(word):
                 freq[new_word] = freq.pop(word)
 
-    def change_freq(freq:dict, max_token, pair_storage):
-        for word, count in list(freq.items()):
+    # 耗时最大
+    def change_freq(freq:dict, max_token, pair_storage, pair_to_word):
+        # for word, count in list(freq.items()):
+        for word in list(pair_to_word[max_token]):
+            if word not in freq:
+                pair_to_word[max_token].remove(word)#维护 
+                continue #不维护可能有浪费，但终究剪纸
             new_word = []
             i = 0
             while i<len(word)-1:
                 if (word[i],word[i+1]) == max_token:
                     new_word.append(word[i]+word[i+1])
+                    count = freq[word]
                     #update pair_storage
                     if i>0:
                         pair_storage[(word[i-1], word[i]+word[i+1])] += count
                         pair_storage[(word[i-1], word[i])]-=count
+
                     if i+2<len(word):
                         pair_storage[(word[i]+word[i+1], word[i+2])] += count 
                         pair_storage[(word[i+1], word[i+2])] -= count
@@ -125,18 +136,23 @@ def train_bpe(
             new_word = tuple(new_word)
             if len(new_word) != len(word):
                 freq[new_word] = freq.pop(word)
+                #all update
+                for i in range(len(new_word)-1):
+                    pair_to_word[(new_word[i], new_word[i+1])].add(new_word)
         #update pair storage
         pair_storage.pop((max_token[0], max_token[1]))
 
     def merge(freq: dict, vocab, merges, vocab_size, special_tokens: set):
         # naive merge
         pair_storage = defaultdict(int)
+        pair_to_word = defaultdict(set)
         # pair_index = defaultdict(list)
         #init pair storage and create index
         for word, count in freq.items():
             for i in range(len(word)-1):
                 #merge two bytes
                 pair_storage[(word[i],word[i+1])]+= count
+                pair_to_word[(word[i],word[i+1])].add(word)
                 # pair_index[(word[i], word[i+1])].append((word, i)) # use address can do 
 
         while len(vocab) < vocab_size:
@@ -152,7 +168,7 @@ def train_bpe(
             merges.append(max_key)
             vocab[len(vocab)]=merge_two_bytes(max_key)
             #exchange
-            change_freq(freq, max_key, pair_storage)
+            change_freq(freq, max_key, pair_storage, pair_to_word)
             
 
     merge(freq, vocab, merges, vocab_size, special_tokens)
