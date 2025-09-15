@@ -4,6 +4,7 @@ import os
 import json
 from pathlib import Path
 from collections import defaultdict
+from collections.abc import Iterable
 from .pretokenization_example import find_chunk_boundaries
 from tqdm import tqdm
 import multiprocessing as mp
@@ -38,6 +39,62 @@ def process_chunk(chunk, special_tokens):
     freq = defaultdict(int)
     get_freq_without_special_tokens(chunk, freq, special_tokens)
     return freq
+
+def chunk_pre_tokenize(chunk):
+    return list(re.findall(PAT, chunk))
+
+def pre_tokenize_without_special_tokens(chunk, special_tokens):
+    # 先按 special token 切段，special token 本身作为单一词元 (bytes,) 计数
+    if special_tokens is None or len(special_tokens) == 0:
+        return chunk_pre_tokenize(chunk)
+    else:
+        special_tokens_sorted = sorted(special_tokens, key=len, reverse=True)
+        special_tokens_re = re.compile("|".join(re.escape(st) for st in special_tokens_sorted)) if special_tokens_sorted else None
+        res = []
+        pos = 0
+        for sm in special_tokens_re.finditer(chunk):
+            if sm.start() > pos:
+                res.extend(chunk_pre_tokenize(chunk[pos:sm.start()]))
+            res.append(chunk[sm.start():sm.end()])
+            pos = sm.end()
+        if pos < len(chunk):
+            res.extend(chunk_pre_tokenize(chunk[pos:]))
+        return res
+    
+def pre_tokenize_file(input_path, special_tokens):
+    with open(input_path, "rb") as f:
+        num_processes = mp.cpu_count()
+        boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+
+        # The following is a serial implementation, but you can parallelize this
+        # by sending each start/end pair to a set of processes.
+        freq = defaultdict(int)
+        chunks = []
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            f.seek(start)
+            chunk = f.read(end - start).decode("utf-8", errors="ignore")
+            chunks.append(chunk)
+        # Run pre-tokenization on your chunk and store the counts for each pre-token
+        #special token split
+        with mp.Pool(processes=num_processes) as pool:
+            # 读取每个数据块并并行处理
+            # chunks = [f.read(end - start).decode("utf-8", errors="ignore") for start, end in zip(boundaries[:-1], boundaries[1:])]
+            results = pool.starmap(pre_tokenize_without_special_tokens, [(chunk, special_tokens) for chunk in chunks])
+
+        return results
+
+def pre_tokenize_iter(text_iter, special_tokens):
+    num_processes = mp.cpu_count()
+
+    # The following is a serial implementation, but you can parallelize this
+    # by sending each start/end pair to a set of processes.
+    #special token split
+    with mp.Pool(processes=num_processes) as pool:
+        # 读取每个数据块并并行处理
+        # chunks = [f.read(end - start).decode("utf-8", errors="ignore") for start, end in zip(boundaries[:-1], boundaries[1:])]
+        results = pool.starmap(pre_tokenize_without_special_tokens, [(chunk, special_tokens) for chunk in text_iter])
+
+    return results
 
 def train_bpe(
     input_path: str | os.PathLike,
@@ -224,9 +281,11 @@ def save_data(save_dir, vocab, merges):
 
 class tokenizer:
     def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None):
-        self.vocab = vocab
+        self.vocab_rev = vocab
+        self.vocab = {v:k for k, v in vocab.items()}
         self.merges = merges
         self.special_tokens = special_tokens
+        self._decode_cache = b''
 
     @classmethod
     def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
@@ -250,8 +309,69 @@ class tokenizer:
         merges = read_merges(merges_filepath)
 
         return cls(vocab, merges, special_tokens)
+    
+    def _encode_str(self, tokens: list[str]):
+        #transform token to bytes
+        # bytes_tokens = [c.encode() for token in tokens for c in token]
+        # bytes_tokens = [bytes([b]) for token in tokens for b in token.encode("utf-8")] 
+        bytes_tokens = []
+        for token in tokens:
+            if self.special_tokens is not None and token in self.special_tokens:
+                bytes_tokens.append([token.encode("utf-8")])
+            else:
+                bytes_tokens.append([bytes([b]) for b in token.encode()])
+
+        #先进行merge
+        for p1, p2 in self.merges:
+            for index, token in enumerate(bytes_tokens):
+                i = 0
+                new_token = []
+                while i < len(token)-1:
+                    if token[i]==p1 and token[i+1]==p2:
+                        new_token.append(p1+p2)
+                        i+=1
+                    else:
+                        new_token.append(token[i])
+                    i+=1
+
+                if i < len(token):
+                    new_token.append(token[i])
+                    i+=1
+                if len(token)!=len(new_token):
+                    bytes_tokens[index] = new_token
+
+
+        #然后查词
+        result = []
+        for token in bytes_tokens:
+            for bt in token:
+                result.append(self.vocab[bt])
+        return result
+
 
     def encode(self, text: str) -> list[int]:
-        pass
+        pre_tokenize_result = pre_tokenize_without_special_tokens(text, self.special_tokens)
+        return self._encode_str(pre_tokenize_result)
+
+    # def encode(self, )
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterable[int]:
+        pre_tokenize_result = pre_tokenize_iter(iterable, self.special_tokens)
+        for token_list in pre_tokenize_result:
+            encode_result = self._encode_str(token_list)
+            for id in encode_result:
+                yield id
+
+    def decode(self, ids: list[int]) -> str:
+        #查表
+        result = self._decode_cache
+        self._decode_cache= b''
+        for id in ids:
+            result += self.vocab_rev[id] 
+        try:
+            result = result.decode()
+        except:
+            self._decode_cache = result
+        return result
 
     
