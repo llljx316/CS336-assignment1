@@ -1,5 +1,6 @@
 from tests.test_train_bpe import *
 from tests.test_tokenizer import *
+from tests.test_model import *
 from cs336_basics.bpe_tokenizer import *
 import time
 import cProfile
@@ -7,8 +8,7 @@ import pstats
 
 
 if __name__=='__main__':
-    test_unicode_string_with_special_tokens_matches_tiktoken()
-    test_roundtrip_single_character()
+    test_rmsnorm()
     # test_train_bpe()
     #train by tiny story
     # input_path = FIXTURES_PATH / "corpus.en"

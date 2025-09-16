@@ -10,7 +10,8 @@
             "request": "launch",
             "module": "pytest",
             "args": [
-                "tests/test_train_bpe.py"
+                "-k",
+                "test_scaled_dot_product_attention"
             ],
             "justMyCode": false,
             "console": "integratedTerminal"
