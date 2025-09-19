@@ -153,7 +153,15 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    msa = multihead_self_attention(d_model, num_heads)
+    state_dict = {
+        'wq.weight': q_proj_weight,
+        'wk.weight': k_proj_weight,
+        'wv.weight': v_proj_weight,
+        'wo.weight': o_proj_weight,
+    }
+    msa.load_state_dict(state_dict)
+    return msa(in_features)
 
 
 def run_multihead_self_attention_with_rope(
@@ -193,7 +201,15 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    msa = multihead_self_attention(d_model, num_heads, max_seq_len, theta)
+    state_dict = {
+        'wq.weight': q_proj_weight,
+        'wk.weight': k_proj_weight,
+        'wv.weight': v_proj_weight,
+        'wo.weight': o_proj_weight,
+    }
+    msa.load_state_dict(state_dict)
+    return msa(in_features, token_positions)
 
 
 def run_rope(
@@ -290,8 +306,21 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    tb = transformer_block(d_model, num_heads, d_ff, max_seq_len, theta)
+    state_dict = {
+        'causal_mha.wq.weight': weights['attn.q_proj.weight'],
+        'causal_mha.wk.weight': weights['attn.k_proj.weight'],
+        'causal_mha.wv.weight': weights['attn.v_proj.weight'],
+        'causal_mha.wo.weight': weights['attn.output_proj.weight'],
+        'RMS1.g': weights['ln1.weight'],
+        'position_FFN.l1.weight': weights['ffn.w1.weight'],
+        'position_FFN.l2.weight': weights['ffn.w2.weight'],
+        'position_FFN.l3.weight': weights['ffn.w3.weight'],
+        'RMS2.g': weights['ln2.weight']
 
+    }
+    tb.load_state_dict(state_dict)
+    return tb(in_features)
 
 def run_transformer_lm(
     vocab_size: int,
@@ -372,8 +401,31 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    transformer = TransformerLM(vocab_size, context_length, num_layers, d_model, d_ff, num_heads, rope_theta)
+    num_layers_v = num_layers
+    # layer_weights = {**layer for layer in layer_weights}
+    
+    state_dict = {
+        'embedding.weight': weights['token_embeddings.weight'],
+        'post_norm.g': weights['ln_final.weight'],
+        'post_linear.weight': weights['lm_head.weight'],
+    }
+    for num_layers in range(num_layers_v):
+        state_dict.update({
+            f'transformer_blks.{num_layers}.causal_mha.wq.weight':weights[f'layers.{num_layers}.attn.q_proj.weight'],
+            f'transformer_blks.{num_layers}.causal_mha.wk.weight':weights[f'layers.{num_layers}.attn.k_proj.weight'],
+            f'transformer_blks.{num_layers}.causal_mha.wv.weight':weights[f'layers.{num_layers}.attn.v_proj.weight'],
+            f'transformer_blks.{num_layers}.causal_mha.wo.weight':weights[f'layers.{num_layers}.attn.output_proj.weight'],
+            f'transformer_blks.{num_layers}.RMS1.g': weights[f'layers.{num_layers}.ln1.weight'],
+            f'transformer_blks.{num_layers}.position_FFN.l1.weight': weights[f'layers.{num_layers}.ffn.w1.weight'],
+            f'transformer_blks.{num_layers}.position_FFN.l2.weight': weights[f'layers.{num_layers}.ffn.w2.weight'],
+            f'transformer_blks.{num_layers}.position_FFN.l3.weight': weights[f'layers.{num_layers}.ffn.w3.weight'],
+            f'transformer_blks.{num_layers}.RMS2.g': weights[f'layers.{num_layers}.ln2.weight'],
+        })
 
+    transformer.load_state_dict(state_dict)
+    y=transformer(in_indices)
+    return y
 
 def run_rmsnorm(
     d_model: int,
@@ -469,7 +521,7 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    return cross_entropy(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
@@ -488,7 +540,7 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(

@@ -10,7 +10,7 @@ class RoPE(nn.Module):
         self.d_k = d_k
         self.max_seq_len = max_seq_len
         self.device = device
-        self.lq = Linear(d_k, d_k, device)
+        # self.lq = Linear(d_k, d_k, device)
         # k in {1,2,...,d//2}
         self.sinik_ls = torch.tensor(([[torch.sin(self._calculate_thetaik(i, k)) for k in range(1, self.d_k//2+1)] for i in range(max_seq_len)]), device=device)
         self.cosik_ls = torch.tensor(([[torch.cos(self._calculate_thetaik(i, k)) for k in range(1, self.d_k//2+1)] for i in range(max_seq_len)]), device=device)

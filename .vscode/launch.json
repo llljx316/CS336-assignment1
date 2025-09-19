@@ -11,11 +11,13 @@
             "module": "pytest",
             "args": [
                 "-k",
-                "test_scaled_dot_product_attention"
+                // "test_adamw"
+                "test_cross_entropy"
+                // "test_transformer_lm"
             ],
             "justMyCode": false,
             "console": "integratedTerminal"
-        }
+        },
         
         {
             "name": "Python 调试程序: main.py",
