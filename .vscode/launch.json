@@ -12,8 +12,10 @@
             "args": [
                 "-k",
                 // "test_adamw"
-                "test_cross_entropy"
+                // "test_cross_entropy"
                 // "test_transformer_lm"
+                // "test_gradient_clipping"
+                "test_get_batch"
             ],
             "justMyCode": false,
             "console": "integratedTerminal"
