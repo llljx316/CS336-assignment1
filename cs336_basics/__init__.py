@@ -17,4 +17,5 @@ from .cross_entropy import cross_entropy
 from .AdamW import AdamW
 from .learning_rate_schedule import learning_rate_schedule
 from .gradient_clipping import GradientClip
-from .DataLoader import DataLoader
+from .DataLoader import DataLoader, DataLoaderFromIterator
+from .checkpoint import *

@@ -7,6 +7,10 @@ class RMSNorm(nn.Module):
         self.g = nn.Parameter(torch.empty(d_model, device=device, dtype=dtype))
         self.d_model = d_model
         self.eps = eps
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        nn.init.trunc_normal_(self.g)
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

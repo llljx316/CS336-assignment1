@@ -16,7 +16,7 @@ class transformer_block(nn.Module):
 
 
     def forward(self, x):
-        token_position = torch.arange(x.shape[-2])#.view(1,-1) # token position 是一个二维的，要对应维度才能够识别seq的位置并且正确的变换
+        token_position = torch.arange(x.shape[-2]).to(x.device)#.view(1,-1) # token position 是一个二维的，要对应维度才能够识别seq的位置并且正确的变换
         y1 = x + self.causal_mha(self.RMS1(x), token_position)
         y2 = y1 + self.position_FFN(self.RMS2(y1))
         return y2

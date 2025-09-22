@@ -23,8 +23,8 @@ class AdamW(torch.optim.Optimizer):
                     continue
                 state = self.state[p] # Get state associated with p.
                 t = state.get("t", 1) # Get iteration number from the state, or initial value.
-                m = state.get("m", torch.zeros(p.data.shape))
-                v = state.get("v", torch.zeros(p.data.shape))
+                m = state.get("m", torch.zeros(p.data.shape, device=p.device))
+                v = state.get("v", torch.zeros(p.data.shape, device=p.device))
                 grad = p.grad.data # Get the gradient of loss with respect to p.
                 m = betas[0] *m + (1-betas[0])*grad
                 v = betas[1] *v + (1-betas[1])* (grad**2)

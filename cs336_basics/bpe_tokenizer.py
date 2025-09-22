@@ -8,6 +8,8 @@ from collections.abc import Iterable
 from .pretokenization_example import find_chunk_boundaries
 from tqdm import tqdm
 import multiprocessing as mp
+import numpy as np
+import torch
 # import cProfile
 # import re
 # cProfile.run('re.compile("foo|bar")')
@@ -263,6 +265,9 @@ def save_data(save_dir, vocab, merges):
         # return ''.join(f'\\u{byte:04x}' if byte > 127 else chr(byte) for byte in byte_value)
         return ''.join(chr(byte) for byte in byte_value)
 
+    def bytes_to_merges_unicode_escape(byte_value):
+        return ''.join(chr(byte) if byte != ord(' ') else 'Ġ' for byte in byte_value)
+
         # try: 
         #     return byte_value.decode('ascii')
         # except:
@@ -277,7 +282,26 @@ def save_data(save_dir, vocab, merges):
 
     with open(root_dir / "merges.txt", 'w', encoding='utf-8') as f:
         # for a, b in merges:
-        f.writelines(f'"{bytes_to_unicode_escape(a)}" "{bytes_to_unicode_escape(b)}"\n' for a, b in merges)
+        f.writelines(f"{bytes_to_merges_unicode_escape(a)} {bytes_to_merges_unicode_escape(b)}\n" for a, b in merges)
+
+
+def merge_op(token, bytes_tokens, p1, p2, index):
+    i = 0
+    new_token = []
+    while i < len(token)-1:
+        if token[i]==p1 and token[i+1]==p2:
+            new_token.append(p1+p2)
+            i+=1
+        else:
+            new_token.append(token[i])
+        i+=1
+
+    if i < len(token):
+        new_token.append(token[i])
+        i+=1
+    if len(token)!=len(new_token):
+        bytes_tokens[index] = new_token
+
 
 class tokenizer:
     def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None):
@@ -298,10 +322,10 @@ class tokenizer:
             with open(file_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     # 去掉行首尾的空白字符，并去掉引号
-                    parts = re.findall(r'"([^"]+)"', line)
+                    parts = line.strip().split(' ')
                     if len(parts) == 2:
                         # 将两个部分转换为元组并添加到 merges 列表中
-                        merges.append((parts[0].strip('"').encode('utf-8'), parts[1].strip('"').encode('utf-8')))
+                        merges.append((parts[0].replace('Ġ', ' ').encode('utf-8'), parts[1].replace('Ġ', ' ').encode('utf-8')))
             return merges
 
         # with open(merges_filepath, 'r', encoding='utf-8') as f:
@@ -322,32 +346,31 @@ class tokenizer:
                 bytes_tokens.append([bytes([b]) for b in token.encode()])
 
         #先进行merge
+
+    
+        # for p1, p2 in tqdm(self.merges):
         for p1, p2 in self.merges:
             for index, token in enumerate(bytes_tokens):
-                i = 0
-                new_token = []
-                while i < len(token)-1:
-                    if token[i]==p1 and token[i+1]==p2:
-                        new_token.append(p1+p2)
-                        i+=1
-                    else:
-                        new_token.append(token[i])
-                    i+=1
+                merge_op(token, bytes_tokens, p1, p2, index)
 
-                if i < len(token):
-                    new_token.append(token[i])
-                    i+=1
-                if len(token)!=len(new_token):
-                    bytes_tokens[index] = new_token
 
 
         #然后查词
         result = []
         for token in bytes_tokens:
             for bt in token:
-                result.append(self.vocab[bt])
+                try:
+                    result.append(self.vocab[bt])
+                except:
+                    # try:
+                    bt = bt.decode('latin-1').encode('utf-8')
+                    result.append(self.vocab[bt])
         return result
 
+    # def _yield_mt(self, token_list):
+    #     encode_result = self._encode_str(token_list)
+    #     for id in encode_result:
+    #         yield id
 
     def encode(self, text: str) -> list[int]:
         pre_tokenize_result = pre_tokenize_without_special_tokens(text, self.special_tokens)
@@ -356,11 +379,31 @@ class tokenizer:
     # def encode(self, )
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterable[int]:
-        pre_tokenize_result = pre_tokenize_iter(iterable, self.special_tokens)
-        for token_list in pre_tokenize_result:
-            encode_result = self._encode_str(token_list)
-            for id in encode_result:
-                yield id
+        if Path('./pre_token_tiny_stories.pth').exists():
+            pre_tokenize_result = torch.load('./pre_token_tiny_stories.pth')
+        else:
+            pre_tokenize_result = pre_tokenize_iter(iterable, self.special_tokens)
+            # with open('./pre_token_tiny_stories.npy', "wb") as f:
+            torch.save(pre_tokenize_result, './pre_token_tiny_stories.pth')
+
+        # for token_list in tqdm(pre_tokenize_result):
+        #     encode_result = self._encode_str(token_list)
+            # for id in encode_result:
+            #     yield id
+
+        process_num = mp.cpu_count()
+        with mp.Pool(process_num) as pool:
+            # self._encode_str 是每个工作进程要调用的函数
+            # pre_tokenized_chunks 是要分发给各个进程的数据
+            # tqdm 用于显示处理进度
+            results_iterator = pool.imap_unordered(self._encode_str, tqdm(pre_tokenize_result))
+            
+            # 3. 从结果迭代器中逐个产出编码后的ID
+            for id_list in results_iterator:
+                yield from id_list
+        # for id in encode_result:
+        #     yield id
+
 
     def decode(self, ids: list[int]) -> str:
         #查表
