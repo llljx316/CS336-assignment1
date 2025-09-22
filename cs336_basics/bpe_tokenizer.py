@@ -378,13 +378,13 @@ class tokenizer:
 
     # def encode(self, )
 
-    def encode_iterable(self, iterable: Iterable[str]) -> Iterable[int]:
-        if Path('./pre_token_tiny_stories.pth').exists():
-            pre_tokenize_result = torch.load('./pre_token_tiny_stories.pth')
+    def encode_iterable(self, iterable: Iterable[str], pre_token_path = None) -> Iterable[int]:
+        if pre_token_path is not None and Path(pre_token_path).exists():
+            pre_tokenize_result = torch.load(pre_token_path)
         else:
             pre_tokenize_result = pre_tokenize_iter(iterable, self.special_tokens)
             # with open('./pre_token_tiny_stories.npy', "wb") as f:
-            torch.save(pre_tokenize_result, './pre_token_tiny_stories.pth')
+            torch.save(pre_tokenize_result, pre_token_path)
 
         # for token_list in tqdm(pre_tokenize_result):
         #     encode_result = self._encode_str(token_list)

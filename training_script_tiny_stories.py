@@ -5,8 +5,29 @@ from pathlib import Path
 from cs336_basics import *
 
 
-def eval_model():
-    pass
+class eval:
+    def __init__(self, Tk: tokenizer, model, dataset_path, batch_size, context_length, device):
+        result = []
+        with open(dataset_path, "r") as f:
+            data_iter = Tk.encode_iterable(f, './pre_token_tiny_stories_valid.pth')
+            for id in data_iter:
+                result.append(id)
+        dataset = np.array(result) 
+
+        self.dataloader = DataLoaderEval(dataset, batch_size, context_length, device)
+        self.model = model
+
+    def eval_model(self):
+        results = np.array()
+        for x, y in self.dataloader:
+            y_eval = self.model(x)
+            loss = cross_entropy(y_eval, y)
+            results.append(loss)
+
+        return results.mean()
+
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='training script for TransformerLM')
@@ -28,8 +49,9 @@ if __name__ == "__main__":
     theta = 10000
     lr = 1e-2
     weight_decay = 0.01
-    batch_size = 32
+    batch_size = 128
     dataset_dir = "../data/TinyStoriesV2-GPT4-train.txt"
+    eval_dataset_path = "../data/TinyStoriesV2-GPT4-valid.txt"
     # dataset_dir = "./tests/fixtures/tinystories_sample_5M.txt"
     loops = 1000
     # save_dir = "./"
@@ -62,7 +84,7 @@ if __name__ == "__main__":
         dataloader = DataLoader(dataset, batch_size, context_length, device=device)
     else:
         f_dataset = open(dataset_dir, 'r')
-        tkiter =  Tk.encode_iterable(f_dataset)
+        tkiter =  Tk.encode_iterable(f_dataset, './pre_token_tiny_stories.pth')
         # encode_result = np.array(encode_result)
         # np.save(encode_path, encode_result)
         dataloader = DataLoaderFromIterator(tkiter, batch_size, context_length, device)
@@ -74,6 +96,8 @@ if __name__ == "__main__":
     #load dataset
     # np.memmap()
     start_t = 0 if args.checkpoint is None else load_checkpoint(args.checkpoint, model, optimizer)
+    eval_loss = float('inf')
+    evaluator = eval(Tk, model, eval_dataset_path, batch_size, context_length, device)
     with tqdm(range(start_t, loops), desc="Training") as pbar:
         for t in pbar:
             optimizer.zero_grad()
@@ -83,11 +107,14 @@ if __name__ == "__main__":
             # if torch.isnan(loss):
             #      cross_entropy(y_t, y)
             loss.backward()
-            pbar.set_postfix(loss=loss.item())
             optimizer.step()
-            if t%100==0:
-                eval_model()
+            # if t%100==0:
+            eloss = evaluator.eval_model()
+            if eloss < eval_loss:
                 save_checkpoint(model, optimizer, t, Path(args.save_dir) / 'model.pth')
+                eval_loss = eloss
+            pbar.set_postfix(loss=loss.item(), eval_loss=eloss.item())
+
 
     f_dataset.close()
     # return model

@@ -29,6 +29,38 @@ class DataLoader:
         DataLoader.i += 1
         return x, y
 
+class DataLoaderEval:
+
+    def __init__(self, dataset: npt.NDArray, batch_size, context_length, device='cuda'):
+        self.batch_size = batch_size
+        self.context_length = context_length
+        self.device = device 
+        self.dataset = dataset
+        self.i=0
+        self.size = len(self.dataset)
+        
+        
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> tuple[Tensor, Tensor] :
+        # 需要循环
+        # x=torch.tensor(self.dataset[DataLoader.i:DataLoader.i+self.batch_size*self.context_length], device=self.device).view(self.batch_size, self.context_length)
+        # y=torch.tensor(self.dataset[DataLoader.i+1:DataLoader.i+1+self.batch_size*self.context_length], device=self.device).view(self.batch_size, self.context_length)
+        # print(DataLoader.i+self.batch_size+1+self.context_length)
+        # def get_ind(i, bias=0):
+        #     ind = np.arange(i, i+self.context_length)%(len(self.dataset) - self.context_length)+bias
+        #     return ind
+        if self.i>=len(self.dataset)-1:
+            self.i = 0
+            raise StopIteration
+
+        x = torch.stack([torch.tensor(self.dataset[i: max(i+self.batch_size, self.size-1)], device = self.device) for i in range(self.i, self.i+self.batch_size)])
+        y = torch.stack([torch.tensor(self.dataset[i+1: max(i+1+self.batch_size, self.size)], device=self.device) for i in range(self.i, self.i+self.batch_size)])
+        DataLoader.i += self.batch_size
+        return x, y
+
 class DataLoaderFromIterator:
     """
     从一个整数迭代器创建批次。
